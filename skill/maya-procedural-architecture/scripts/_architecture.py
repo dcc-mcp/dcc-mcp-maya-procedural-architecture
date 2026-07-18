@@ -1217,12 +1217,19 @@ def _light_nodes(cmds: Any, node: str) -> Tuple[str, str]:
     return parents[0], node
 
 
+def _select_render_camera(cmds: Any, camera_shape: str) -> None:
+    """Make the staged camera the only camera used by batch rendering."""
+    for shape in cmds.ls(type="camera") or []:
+        cmds.setAttr(shape + ".renderable", shape == camera_shape)
+
+
 def _stage_scene(cmds: Any, base: str, root: str, frame_count: int) -> Dict[str, Any]:
     if not cmds.pluginInfo("mtoa", query=True, loaded=True):
         cmds.loadPlugin("mtoa", quiet=True)
     camera, camera_shape = cmds.camera(name=base + "_RenderCamera")
     cmds.xform(camera, worldSpace=True, translation=(24.0, 7.6, 29.0))
     _set_attr(cmds, camera_shape, "focalLength", 50.0)
+    _select_render_camera(cmds, camera_shape)
     _look_at(cmds, camera, (0.0, 3.0, 0.8))
     orbit = cmds.group(empty=True, name=base + "_CameraOrbit")
     cmds.xform(orbit, worldSpace=True, pivots=(0.0, 3.4, 0.5))

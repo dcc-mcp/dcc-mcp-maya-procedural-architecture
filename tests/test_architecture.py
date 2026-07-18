@@ -12,7 +12,13 @@ import yaml
 SCRIPTS = Path(__file__).resolve().parents[1] / "skill" / "maya-procedural-architecture" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from _architecture import MATERIAL_ORDER, TEXTURE_ROLES, design_house, prepare_textures  # noqa: E402
+from _architecture import (  # noqa: E402
+    MATERIAL_ORDER,
+    TEXTURE_ROLES,
+    _select_render_camera,
+    design_house,
+    prepare_textures,
+)
 
 
 def test_design_is_deterministic_and_detailed() -> None:
@@ -79,6 +85,27 @@ def test_tool_contracts_use_main_affinity() -> None:
     assert [tool["name"] for tool in tools] == ["generate_realistic_house", "show_house_generator"]
     assert all(tool["affinity"] == "main" for tool in tools)
     assert all(tool["enforce_thread_affinity"] is True for tool in tools)
+
+
+def test_staged_camera_is_the_only_batch_render_camera() -> None:
+    class FakeCmds:
+        def __init__(self) -> None:
+            self.values = {}
+
+        def ls(self, *, type: str):
+            assert type == "camera"
+            return ["perspShape", "houseRenderShape"]
+
+        def setAttr(self, attribute: str, value: bool) -> None:
+            self.values[attribute] = value
+
+    cmds = FakeCmds()
+    _select_render_camera(cmds, "houseRenderShape")
+
+    assert cmds.values == {
+        "perspShape.renderable": False,
+        "houseRenderShape.renderable": True,
+    }
 
 
 def test_skill_entrypoints_load_without_scripts_on_sys_path(monkeypatch) -> None:
