@@ -1,6 +1,6 @@
 tools:
   - name: generate_realistic_house
-    description: Generate a detailed seeded craftsman, farmhouse, or cottage as Bifrost structural graphs with Arnold PBR look-dev and an animated camera orbit.
+    description: Generate a detailed seeded house across six architectural styles with realistic or stylized Arnold materials, optional CC0 HDR lighting, and an animated camera orbit.
     source_file: scripts/generate_realistic_house.py
     input_schema:
       type: object
@@ -13,8 +13,12 @@ tools:
           description: Reuse a returned seed to reproduce the same house.
         style:
           type: string
-          enum: [craftsman, farmhouse, cottage]
+          enum: [craftsman, farmhouse, cottage, tudor, coastal, modern_farmhouse]
           default: craftsman
+        look:
+          type: string
+          enum: [realistic, stylized]
+          default: realistic
         name:
           type: string
           default: RealisticHouse
@@ -30,6 +34,18 @@ tools:
             brick: {type: object}
             concrete: {type: object}
           additionalProperties: false
+        environment_asset:
+          type: object
+          description: Optional CC0 HDR AssetDescriptor used by the Arnold skydome.
+        environment_rotation:
+          type: number
+          default: 0.0
+          description: Y-axis rotation in degrees for the HDR environment.
+        environment_exposure:
+          type: number
+          minimum: -10.0
+          maximum: 10.0
+          default: 0.0
         replace:
           type: boolean
           default: true
@@ -67,7 +83,7 @@ tools:
         - dcc_diagnostics__audit_log
 
   - name: show_house_generator
-    description: Open an interactive Maya Qt dialog that generates and randomizes the same realistic Bifrost house contract.
+    description: Open a cancellable Maya Qt dialog for randomized Bifrost houses with selectable realistic or stylized material looks.
     source_file: scripts/show_house_generator.py
     input_schema:
       type: object
@@ -82,6 +98,17 @@ tools:
             brick: {type: object}
             concrete: {type: object}
           additionalProperties: false
+        environment_asset:
+          type: object
+          description: Optional CC0 HDR AssetDescriptor used by the Arnold skydome.
+        environment_rotation:
+          type: number
+          default: 0.0
+        environment_exposure:
+          type: number
+          minimum: -10.0
+          maximum: 10.0
+          default: 0.0
         workspace_dir:
           type: string
         name:
@@ -93,8 +120,12 @@ tools:
           maximum: 2147483647
         style:
           type: string
-          enum: [craftsman, farmhouse, cottage]
+          enum: [craftsman, farmhouse, cottage, tudor, coastal, modern_farmhouse]
           default: craftsman
+        look:
+          type: string
+          enum: [realistic, stylized]
+          default: realistic
       additionalProperties: false
     output_schema:
       type: object

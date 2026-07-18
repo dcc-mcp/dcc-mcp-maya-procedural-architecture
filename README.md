@@ -1,15 +1,18 @@
 # dcc-mcp-maya-procedural-architecture
 
 High-detail residential architecture for Maya. The skill builds seeded
-craftsman, farmhouse, and cottage exteriors with material-separated Bifrost
-structural graphs and beveled Maya finish details, applies real CC0 PBR
-textures with Arnold triplanar shading, and stages a render camera and orbit.
+craftsman, farmhouse, cottage, Tudor, coastal, and modern-farmhouse exteriors
+with material-separated Bifrost structural graphs and instanced finish details.
+It supports both physically based realistic and brighter stylized looks, with
+CC0 PBR textures, optional HDR environments, Arnold lights, and a staged camera
+orbit.
 
 ![Seeded Maya and Bifrost procedural house styles](docs/showcase/maya-bifrost-random-houses.gif)
 
-The showcase is a 51-frame, 1280×720 Arnold render cycling three deterministic
-style presets. The [turntable contact sheet](docs/showcase/turntable-contact-sheet.jpg)
-shows four rendered camera angles for every preset.
+The 1280×720 Arnold showcase cycles six deterministic houses. Every house is
+held for 1.5 seconds so its architecture and realistic/stylized look remain
+readable. The [six-style contact sheet](docs/showcase/turntable-contact-sheet.jpg)
+shows the full comparison under a shared ambientCG HDR environment.
 
 House-specific code lives here. The Maya adapter keeps only generic typed
 Bifrost/VNN graph operations, while `dcc-asset-ambientcg` owns asset discovery
@@ -18,14 +21,15 @@ and downloads.
 ## Tools
 
 - `generate_realistic_house` — works through an interactive Maya sidecar and
-  in `mayapy` standalone.
-- `show_house_generator` — opens a Maya Qt dialog with seed and randomize
-  controls; host work remains on the sidecar's QTimer main-thread path.
+  in `mayapy` standalone; `look` accepts `realistic` or `stylized`.
+- `show_house_generator` — opens a Maya Qt dialog with style/look selection,
+  seeded randomization, cancellable progress, and QTimer main-thread dispatch.
 
 ## PBR asset flow
 
 Use the marketplace `ambientcg-assets` skill to search and download four CC0
-materials. Pass its returned `AssetDescriptor` objects by role:
+materials and, optionally, one CC0 HDRI. Pass its returned `AssetDescriptor`
+objects by role:
 
 ```json
 {
@@ -35,14 +39,22 @@ materials. Pass its returned `AssetDescriptor` objects by role:
     "brick": {"asset_id": "ambientcg:Bricks060", "variants": [], "attribution": {}},
     "concrete": {"asset_id": "ambientcg:Concrete034", "variants": [], "attribution": {}}
   },
+  "environment_asset": {
+    "asset_id": "ambientcg:DaySkyHDRI001A",
+    "variants": [],
+    "attribution": {"license_spdx": "CC0-1.0"}
+  },
   "workspace_dir": "C:/absolute/house-workspace",
-  "seed": 20260718
+  "seed": 20260718,
+  "style": "coastal",
+  "look": "realistic"
 }
 ```
 
 The abbreviated objects above show routing only; pass the complete descriptors
-returned by the provider. The generator extracts color, roughness, and OpenGL
-normal maps and writes `asset_attribution.json` beside the textures.
+returned by the provider. The generator extracts color, roughness, OpenGL
+normal, AO, and displacement maps, connects the HDR to an Arnold SkyDome, adds
+an Arnold Area key light, and writes `asset_attribution.json` beside the assets.
 
 ## Standalone
 
@@ -56,12 +68,26 @@ $workspace = Join-Path $PWD "house-workspace"
   --assets assets.json `
   --workspace $workspace `
   --output (Join-Path $workspace "realistic-house.ma") `
-  --style farmhouse `
+  --environment environment-hdr.json `
+  --style tudor `
+  --look stylized `
   --seed 20260718
 ```
 
-`assets.json` contains the role-to-AssetDescriptor mapping. In Maya GUI, load
-the skill and call `show_house_generator` with the same mapping.
+`assets.json` contains the role-to-AssetDescriptor mapping;
+`environment-hdr.json` contains the optional HDR AssetDescriptor. In Maya GUI,
+load the skill and call `show_house_generator` with the same descriptors.
+
+## Stability contract
+
+- Generation is capped at 420 planned parts and reuses one prototype mesh per
+  detail role through Maya instances.
+- Viewport refresh, undo recording, and auto-key are guarded and restored even
+  after errors or cancellation; partial generated nodes are removed.
+- Interactive generation is queued with `QTimer.singleShot(0, ...)` and exposes
+  stage/percentage progress plus Cancel.
+- Standalone explicitly clears the scene and uninitializes Maya before process
+  exit so Bifrost and Arnold release cleanly.
 
 ## Development
 

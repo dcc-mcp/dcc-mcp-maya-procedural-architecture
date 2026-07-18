@@ -38,9 +38,13 @@ def main(
     workspace_dir: str,
     seed: Optional[int] = None,
     style: str = "craftsman",
+    look: str = "realistic",
     name: str = "RealisticHouse",
     replace: bool = True,
     frame_count: int = 96,
+    environment_asset: Optional[Dict[str, Any]] = None,
+    environment_rotation: float = 0.0,
+    environment_exposure: float = 0.0,
     **_: Any,
 ) -> Dict[str, Any]:
     """Build the house on Maya's main thread and return render-ready context."""
@@ -53,9 +57,13 @@ def main(
             workspace_dir=workspace_dir,
             seed=seed,
             style=style,
+            look=look,
             name=name,
             replace=replace,
             frame_count=frame_count,
+            environment_asset=environment_asset,
+            environment_rotation=environment_rotation,
+            environment_exposure=environment_exposure,
         )
         return skill_success(
             "Generated detailed Bifrost house with Arnold PBR materials",

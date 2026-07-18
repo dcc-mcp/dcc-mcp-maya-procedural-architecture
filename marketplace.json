@@ -3,7 +3,7 @@
   "entries": [
     {
       "name": "dcc-mcp-maya-procedural-architecture",
-      "description": "Seeded craftsman, farmhouse, and cottage Bifrost structures with beveled finishes, Arnold PBR materials, and a Maya generator GUI",
+      "description": "Six seeded Bifrost house styles with realistic or stylized Arnold materials, optional CC0 HDR lighting, and a cancellable Maya generator GUI",
       "dcc": [
         "maya"
       ],
@@ -13,7 +13,9 @@
         "architecture",
         "procedural-modeling",
         "arnold",
-        "pbr"
+        "pbr",
+        "hdri",
+        "stylized"
       ],
       "version": "1.0.1",
       "min_core_version": "0.19.0",

@@ -9,13 +9,15 @@ import random
 import re
 import shutil
 import zipfile
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 MAX_SEED = 2_147_483_647
-SUPPORTED_STYLES = ("craftsman", "farmhouse", "cottage")
+MAX_GENERATED_PARTS = 420
+SUPPORTED_STYLES = ("craftsman", "farmhouse", "cottage", "tudor", "coastal", "modern_farmhouse")
+SUPPORTED_LOOKS = ("realistic", "stylized")
 TEXTURE_ROLES = ("siding", "roof", "brick", "concrete")
 MATERIAL_ORDER = (
     "ground",
@@ -53,6 +55,39 @@ class HouseDesign:
     seed: int
     style: str
     parts: Tuple[Part, ...]
+    features: Tuple[str, ...] = ()
+
+
+ProgressCallback = Callable[[int, str], None]
+
+
+class GenerationCancelled(RuntimeError):
+    """Raised when the interactive user cancels a generation pass."""
+
+
+def _emit_progress(progress: Optional[ProgressCallback], value: int, message: str) -> None:
+    if progress is not None:
+        progress(max(0, min(100, int(value))), str(message))
+
+
+@contextmanager
+def _maya_generation_guard(cmds: Any) -> Iterator[None]:
+    """Reduce Maya evaluation pressure and restore host state on every exit path."""
+    undo_enabled = bool(cmds.undoInfo(query=True, state=True))
+    auto_key_enabled = bool(cmds.autoKeyframe(query=True, state=True))
+    cmds.refresh(suspend=True)
+    if undo_enabled:
+        cmds.undoInfo(stateWithoutFlush=False)
+    if auto_key_enabled:
+        cmds.autoKeyframe(state=False)
+    try:
+        yield
+    finally:
+        if auto_key_enabled:
+            cmds.autoKeyframe(state=True)
+        if undo_enabled:
+            cmds.undoInfo(stateWithoutFlush=True)
+        cmds.refresh(suspend=False)
 
 
 def _rounded(value: float) -> float:
@@ -395,40 +430,88 @@ def design_house(seed: Optional[int] = None, style: str = "craftsman") -> HouseD
     rng = random.Random(resolved_seed)
     presets = {
         "craftsman": {
-            "main_width": (12.0, 13.1),
-            "main_depth": (8.7, 9.5),
-            "wall_height": (6.1, 6.6),
-            "roof_height": (2.9, 3.5),
-            "garage_width": (6.6, 7.3),
-            "garage_depth": (8.0, 8.7),
-            "wing_ratio": 0.42,
-            "wing_depth": 3.0,
-            "garage_wall_height": 3.2,
-            "porch_width": 4.8,
+            "main_width": (11.8, 14.2),
+            "main_depth": (8.4, 10.2),
+            "wall_height": (5.9, 6.9),
+            "roof_height": (2.8, 3.8),
+            "garage_width": (6.2, 8.0),
+            "garage_depth": (7.7, 9.3),
+            "wing_ratio": (0.34, 0.5),
+            "wing_depth": (2.7, 3.8),
+            "garage_wall_height": (3.0, 3.55),
+            "porch_width": (4.2, 6.4),
+            "porch_depth": (2.1, 3.0),
+            "dormers": (0, 2),
         },
         "farmhouse": {
-            "main_width": (13.2, 14.4),
-            "main_depth": (9.1, 10.0),
-            "wall_height": (6.5, 7.0),
-            "roof_height": (3.8, 4.4),
-            "garage_width": (7.0, 7.8),
-            "garage_depth": (8.4, 9.2),
-            "wing_ratio": 0.36,
-            "wing_depth": 3.4,
-            "garage_wall_height": 3.35,
-            "porch_width": 6.4,
+            "main_width": (12.8, 15.8),
+            "main_depth": (8.8, 10.8),
+            "wall_height": (6.3, 7.4),
+            "roof_height": (3.6, 4.8),
+            "garage_width": (6.7, 8.6),
+            "garage_depth": (8.0, 9.8),
+            "wing_ratio": (0.3, 0.44),
+            "wing_depth": (3.0, 4.2),
+            "garage_wall_height": (3.15, 3.7),
+            "porch_width": (5.8, 8.8),
+            "porch_depth": (2.3, 3.3),
+            "dormers": (1, 3),
         },
         "cottage": {
-            "main_width": (10.8, 11.9),
-            "main_depth": (8.0, 8.8),
-            "wall_height": (5.4, 5.9),
-            "roof_height": (3.7, 4.3),
-            "garage_width": (5.9, 6.5),
-            "garage_depth": (7.3, 8.0),
-            "wing_ratio": 0.5,
-            "wing_depth": 3.2,
-            "garage_wall_height": 3.0,
-            "porch_width": 4.0,
+            "main_width": (9.8, 12.6),
+            "main_depth": (7.4, 9.4),
+            "wall_height": (5.1, 6.2),
+            "roof_height": (3.4, 4.7),
+            "garage_width": (5.5, 7.0),
+            "garage_depth": (7.0, 8.6),
+            "wing_ratio": (0.42, 0.58),
+            "wing_depth": (2.8, 4.0),
+            "garage_wall_height": (2.85, 3.35),
+            "porch_width": (3.4, 5.2),
+            "porch_depth": (1.9, 2.8),
+            "dormers": (0, 1),
+        },
+        "tudor": {
+            "main_width": (11.6, 14.0),
+            "main_depth": (8.4, 10.4),
+            "wall_height": (6.2, 7.3),
+            "roof_height": (4.2, 5.4),
+            "garage_width": (6.0, 7.8),
+            "garage_depth": (7.6, 9.2),
+            "wing_ratio": (0.38, 0.54),
+            "wing_depth": (3.1, 4.4),
+            "garage_wall_height": (3.0, 3.55),
+            "porch_width": (3.2, 5.0),
+            "porch_depth": (1.8, 2.6),
+            "dormers": (1, 2),
+        },
+        "coastal": {
+            "main_width": (12.4, 15.6),
+            "main_depth": (8.2, 10.7),
+            "wall_height": (6.2, 7.5),
+            "roof_height": (3.1, 4.3),
+            "garage_width": (6.4, 8.4),
+            "garage_depth": (7.7, 9.6),
+            "wing_ratio": (0.3, 0.46),
+            "wing_depth": (2.9, 4.2),
+            "garage_wall_height": (3.1, 3.7),
+            "porch_width": (6.2, 9.4),
+            "porch_depth": (2.5, 3.5),
+            "dormers": (1, 3),
+        },
+        "modern_farmhouse": {
+            "main_width": (13.0, 16.4),
+            "main_depth": (8.8, 11.2),
+            "wall_height": (6.4, 7.6),
+            "roof_height": (3.8, 5.1),
+            "garage_width": (7.0, 9.2),
+            "garage_depth": (8.1, 10.0),
+            "wing_ratio": (0.28, 0.44),
+            "wing_depth": (3.0, 4.5),
+            "garage_wall_height": (3.2, 3.85),
+            "porch_width": (5.0, 8.2),
+            "porch_depth": (2.2, 3.3),
+            "dormers": (0, 2),
         },
     }
     preset = presets[normalized_style]
@@ -438,18 +521,19 @@ def design_house(seed: Optional[int] = None, style: str = "craftsman") -> HouseD
     roof_height = rng.uniform(*preset["roof_height"])
     garage_width = rng.uniform(*preset["garage_width"])
     garage_depth = rng.uniform(*preset["garage_depth"])
-    wing_width = main_width * preset["wing_ratio"]
-    main_x = -1.6
+    wing_width = main_width * rng.uniform(*preset["wing_ratio"])
+    main_x = rng.uniform(-2.0, -1.1)
     garage_x = main_x + main_width / 2.0 + garage_width / 2.0 - 1.1
-    garage_z = 1.0
-    wing_x = main_x - main_width * 0.25
-    wing_depth = preset["wing_depth"]
-    wing_z = main_depth / 2.0 + wing_depth / 2.0 - 0.3
-    base_y = 0.55
+    garage_z = rng.uniform(0.4, 1.6)
+    wing_x = main_x - main_width * rng.uniform(0.18, 0.32)
+    wing_depth = rng.uniform(*preset["wing_depth"])
+    wing_z = main_depth / 2.0 + wing_depth / 2.0 - rng.uniform(0.15, 0.65)
+    base_y = rng.uniform(0.45, 0.68)
     main_front = main_depth / 2.0
     wing_front = wing_z + wing_depth / 2.0
     garage_front = garage_z + garage_depth / 2.0
     parts: List[Part] = []
+    features = [f"palette_{resolved_seed % 3 + 1}"]
 
     _box(parts, "ground", "ground", (34.0, 0.22, 28.0), (0.5, -0.16, 0.0))
     _box(
@@ -480,7 +564,7 @@ def design_house(seed: Optional[int] = None, style: str = "craftsman") -> HouseD
         (wing_width, wall_height, wing_depth),
         (wing_x, base_y + wall_height / 2.0, wing_z),
     )
-    garage_wall_height = preset["garage_wall_height"]
+    garage_wall_height = rng.uniform(*preset["garage_wall_height"])
     _box(
         parts,
         "garage_walls",
@@ -569,9 +653,57 @@ def design_house(seed: Optional[int] = None, style: str = "craftsman") -> HouseD
         roof_height * 0.68,
     )
 
-    porch_x = main_x + main_width * 0.17
-    porch_width = preset["porch_width"]
-    porch_depth = 2.4
+    dormer_count = rng.randint(*preset["dormers"])
+    if dormer_count:
+        features.append(f"{dormer_count}_dormers")
+        dormer_width = min(2.05, main_width / (dormer_count + 2.2))
+        dormer_depth = rng.uniform(1.45, 1.9)
+        dormer_height = rng.uniform(1.25, 1.65)
+        dormer_y = base_y + wall_height + roof_height * rng.uniform(0.26, 0.38)
+        span = main_width * 0.46
+        for dormer_index in range(dormer_count):
+            fraction = (dormer_index + 1) / float(dormer_count + 1)
+            dormer_x = main_x - span / 2.0 + span * fraction
+            dormer_z = main_front - dormer_depth * 0.32
+            _box(
+                parts,
+                f"dormer_{dormer_index}_walls",
+                "siding",
+                (dormer_width, dormer_height, dormer_depth),
+                (dormer_x, dormer_y + dormer_height / 2.0, dormer_z),
+            )
+            _gable_roof(
+                parts,
+                f"dormer_{dormer_index}_roof",
+                dormer_x,
+                dormer_y + dormer_height,
+                dormer_z,
+                dormer_width + 0.42,
+                dormer_height * 0.66,
+                dormer_depth + 0.5,
+            )
+            _gable_infill(
+                parts,
+                f"dormer_{dormer_index}_gable",
+                dormer_x,
+                dormer_y + dormer_height,
+                dormer_z + dormer_depth / 2.0 + 0.08,
+                dormer_width,
+                dormer_height * 0.58,
+            )
+            _front_window(
+                parts,
+                f"dormer_{dormer_index}_window",
+                dormer_x,
+                dormer_y + dormer_height * 0.53,
+                dormer_z + dormer_depth / 2.0 + 0.11,
+                dormer_width * 0.54,
+                dormer_height * 0.58,
+            )
+
+    porch_x = main_x + main_width * rng.uniform(0.1, 0.24)
+    porch_width = rng.uniform(*preset["porch_width"])
+    porch_depth = rng.uniform(*preset["porch_depth"])
     porch_z = main_front + porch_depth / 2.0
     _box(
         parts,
@@ -776,14 +908,22 @@ def design_house(seed: Optional[int] = None, style: str = "craftsman") -> HouseD
             (x, 2.75, main_front + 0.35),
         )
 
-    shrub_positions = (
+    shrub_positions = [
         (main_x - main_width * 0.48, wing_front + 0.58),
         (wing_x - main_width * 0.12, wing_front + 0.62),
         (wing_x + main_width * 0.16, wing_front + 0.62),
         (porch_x - porch_width * 0.58, main_front + 0.52),
         (porch_x + porch_width * 0.58, main_front + 0.5),
         (garage_x - garage_width * 0.56, garage_front + 0.45),
-    )
+    ]
+    for _ in range(rng.randint(0, 4)):
+        shrub_positions.append(
+            (
+                rng.uniform(main_x - main_width * 0.52, garage_x + garage_width * 0.48),
+                rng.uniform(main_front + 0.35, max(main_front, garage_front) + 0.95),
+            )
+        )
+    features.append(f"{len(shrub_positions)}_landscape_clusters")
     for shrub_index, (shrub_x, shrub_z) in enumerate(shrub_positions):
         spread = rng.uniform(0.75, 1.0)
         for lobe_index, (dx, dz, scale) in enumerate(((-0.28, 0.02, 0.78), (0.22, 0.08, 0.88), (0.0, -0.18, 1.0))):
@@ -798,7 +938,29 @@ def design_house(seed: Optional[int] = None, style: str = "craftsman") -> HouseD
                 (shrub_x + dx, height / 2.0, shrub_z + dz),
             )
 
-    return HouseDesign(seed=resolved_seed, style=normalized_style, parts=tuple(parts))
+    if rng.random() < 0.5:
+        parts = [
+            Part(
+                name=part.name,
+                material=part.material,
+                dimensions=part.dimensions,
+                position=(-part.position[0], part.position[1], part.position[2]),
+                rotation_z=-part.rotation_z,
+                primitive=part.primitive,
+            )
+            for part in parts
+        ]
+        features.append("garage_left")
+    else:
+        features.append("garage_right")
+    if len(parts) > MAX_GENERATED_PARTS:
+        raise RuntimeError(f"generated design exceeds the safe limit of {MAX_GENERATED_PARTS} parts")
+    return HouseDesign(
+        seed=resolved_seed,
+        style=normalized_style,
+        parts=tuple(parts),
+        features=tuple(features),
+    )
 
 
 def _safe_extract_images(archive: Path, destination: Path) -> List[Path]:
@@ -810,6 +972,7 @@ def _safe_extract_images(archive: Path, destination: Path) -> List[Path]:
     with zipfile.ZipFile(str(archive)) as bundle:
         for info in bundle.infolist():
             if info.is_dir() or Path(info.filename).suffix.lower() not in {
+                ".hdr",
                 ".jpg",
                 ".jpeg",
                 ".png",
@@ -843,8 +1006,39 @@ def _map_kind(path: Path) -> Optional[str]:
     return None
 
 
-def prepare_textures(material_assets: Mapping[str, Mapping[str, Any]], workspace_dir: str) -> Dict[str, Any]:
-    """Extract required AssetDescriptors and write a truthful attribution manifest."""
+def _prepare_environment_asset(
+    environment_asset: Mapping[str, Any],
+    workspace: Path,
+) -> Dict[str, Any]:
+    descriptor = dict(environment_asset)
+    variants = descriptor.get("variants") or []
+    attribution = descriptor.get("attribution") or {}
+    if not descriptor.get("asset_id") or not variants:
+        raise ValueError("environment_asset must be a valid AssetDescriptor")
+    if attribution.get("license_spdx") != "CC0-1.0":
+        raise ValueError("environment HDR must use CC0-1.0")
+    variant = next((item for item in variants if item.get("preferred")), variants[0])
+    archive = Path(str(variant.get("local_path") or "")).expanduser()
+    asset_folder = _safe_name(str(descriptor["asset_id"]).replace(":", "_"))
+    images = _safe_extract_images(archive, workspace / "environment" / asset_folder)
+    candidates = [path for path in images if path.suffix.lower() in {".exr", ".hdr", ".tif", ".tiff"}]
+    if not candidates:
+        raise ValueError("environment_asset archive must contain an EXR, HDR, or TIFF image")
+    environment_path = max(candidates, key=lambda path: (path.suffix.lower() == ".exr", path.stat().st_size))
+    return {
+        "asset_id": descriptor["asset_id"],
+        "archive": str(archive),
+        "path": str(environment_path),
+        "attribution": attribution,
+    }
+
+
+def prepare_textures(
+    material_assets: Mapping[str, Mapping[str, Any]],
+    workspace_dir: str,
+    environment_asset: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Extract CC0 material/HDR descriptors and write a truthful attribution manifest."""
     workspace = Path(workspace_dir).expanduser()
     if not workspace.is_absolute():
         raise ValueError("workspace_dir must be absolute")
@@ -874,10 +1068,16 @@ def prepare_textures(material_assets: Mapping[str, Mapping[str, Any]], workspace
             "maps": maps,
             "attribution": attribution,
         }
+    prepared_environment = (
+        _prepare_environment_asset(environment_asset, workspace) if environment_asset is not None else None
+    )
     workspace.mkdir(parents=True, exist_ok=True)
     manifest = workspace / "asset_attribution.json"
-    manifest.write_text(json.dumps(prepared, indent=2, sort_keys=True), encoding="utf-8")
-    return {"materials": prepared, "manifest": str(manifest)}
+    manifest_data = dict(prepared)
+    if prepared_environment is not None:
+        manifest_data["environment"] = prepared_environment
+    manifest.write_text(json.dumps(manifest_data, indent=2, sort_keys=True), encoding="utf-8")
+    return {"materials": prepared, "environment": prepared_environment, "manifest": str(manifest)}
 
 
 def _set_attr(cmds: Any, node: str, attribute: str, value: Any) -> None:
@@ -906,10 +1106,14 @@ def _triplanar_file(
     scale: float,
     color_space: str,
     color_gain: Optional[Tuple[float, float, float]] = None,
+    scalar: bool = False,
 ) -> str:
     texture = cmds.shadingNode("file", asTexture=True, name=name + "_File")
     _set_attr(cmds, texture, "fileTextureName", str(path).replace("\\", "/"))
+    _set_attr(cmds, texture, "ignoreColorSpaceFileRules", True)
     _set_attr(cmds, texture, "colorSpace", color_space)
+    if scalar:
+        _set_attr(cmds, texture, "alphaIsLuminance", True)
     if color_gain is not None:
         _set_attr(cmds, texture, "colorGain", color_gain)
     triplanar = cmds.shadingNode("aiTriplanar", asUtility=True, name=name + "_Triplanar")
@@ -926,20 +1130,62 @@ def _pbr_surface(
     maps: Mapping[str, str],
     scale: float,
     color_gain: Tuple[float, float, float],
+    role: str,
+    look: str,
 ) -> Tuple[str, str]:
     material, shading_group = _new_surface(cmds, name)
-    _set_attr(cmds, material, "base", 0.9)
-    _set_attr(cmds, material, "specular", 0.45)
-    _set_attr(cmds, material, "coat", 0.04)
+    realistic = look == "realistic"
+    _set_attr(cmds, material, "base", 0.82 if realistic else 0.94)
+    _set_attr(cmds, material, "specular", 0.5 if realistic else 0.32)
+    _set_attr(cmds, material, "specularIOR", 1.5 if realistic else 1.38)
+    _set_attr(cmds, material, "coat", 0.015 if realistic else 0.06)
+    _set_attr(cmds, material, "coatRoughness", 0.32 if realistic else 0.5)
     color = _triplanar_file(cmds, name + "_Color", maps["color"], scale, "sRGB", color_gain)
-    roughness = _triplanar_file(cmds, name + "_Roughness", maps["roughness"], scale, "Raw")
+    roughness = _triplanar_file(cmds, name + "_Roughness", maps["roughness"], scale, "Raw", scalar=True)
     normal_texture = _triplanar_file(cmds, name + "_Normal", maps["normal"], scale, "Raw")
     normal_map = cmds.shadingNode("aiNormalMap", asUtility=True, name=name + "_NormalMap")
-    _set_attr(cmds, normal_map, "strength", 0.65)
-    cmds.connectAttr(color + ".outColor", material + ".baseColor", force=True)
+    normal_strengths = {"siding": 0.42, "roof": 0.58, "brick": 0.72, "concrete": 0.38}
+    _set_attr(cmds, normal_map, "strength", normal_strengths[role] if realistic else 0.24)
+    color_output = color + ".outColor"
+    if realistic and "ao" in maps:
+        ao = _triplanar_file(cmds, name + "_AO", maps["ao"], scale, "Raw", scalar=True)
+        multiply = cmds.shadingNode("multiplyDivide", asUtility=True, name=name + "_ColorAO")
+        cmds.connectAttr(color_output, multiply + ".input1", force=True)
+        cmds.connectAttr(ao + ".outColor", multiply + ".input2", force=True)
+        color_output = multiply + ".output"
+    cmds.connectAttr(color_output, material + ".baseColor", force=True)
     cmds.connectAttr(roughness + ".outColorR", material + ".specularRoughness", force=True)
     cmds.connectAttr(normal_texture + ".outColor", normal_map + ".input", force=True)
-    cmds.connectAttr(normal_map + ".outValue", material + ".normalCamera", force=True)
+    normal_output = normal_map + ".outValue"
+    if realistic and "displacement" in maps:
+        height = _triplanar_file(
+            cmds,
+            name + "_Height",
+            maps["displacement"],
+            scale,
+            "Raw",
+            scalar=True,
+        )
+        bump = cmds.shadingNode("aiBump2d", asUtility=True, name=name + "_MicroBump")
+        bump_heights = {"siding": 0.08, "roof": 0.16, "brick": 0.12, "concrete": 0.06}
+        _set_attr(cmds, bump, "bumpHeight", bump_heights[role])
+        cmds.connectAttr(height + ".outColorR", bump + ".bumpMap", force=True)
+        cmds.connectAttr(normal_output, bump + ".normal", force=True)
+        normal_output = bump + ".outValue"
+    cmds.connectAttr(normal_output, material + ".normalCamera", force=True)
+    if "metalness" in maps:
+        metalness = _triplanar_file(
+            cmds,
+            name + "_Metalness",
+            maps["metalness"],
+            scale,
+            "Raw",
+            scalar=True,
+        )
+        cmds.connectAttr(metalness + ".outColorR", material + ".metalness", force=True)
+    if "opacity" in maps:
+        opacity = _triplanar_file(cmds, name + "_Opacity", maps["opacity"], scale, "Raw", scalar=True)
+        cmds.connectAttr(opacity + ".outColor", material + ".opacity", force=True)
     return material, shading_group
 
 
@@ -957,9 +1203,11 @@ def _solid_surface(
     _set_attr(cmds, material, "metalness", metalness)
     _set_attr(cmds, material, "transmission", transmission)
     if transmission:
-        _set_attr(cmds, material, "base", 0.08)
-        _set_attr(cmds, material, "specular", 0.9)
-        _set_attr(cmds, material, "coat", 0.15)
+        _set_attr(cmds, material, "base", 0.0)
+        _set_attr(cmds, material, "specular", 1.0)
+        _set_attr(cmds, material, "specularIOR", 1.52)
+        _set_attr(cmds, material, "thinWalled", True)
+        _set_attr(cmds, material, "coat", 0.04)
     return material, shading_group
 
 
@@ -967,24 +1215,33 @@ def _create_materials(
     cmds: Any,
     base: str,
     prepared: Mapping[str, Any],
-    style: str,
+    design: HouseDesign,
+    look: str,
 ) -> Dict[str, Dict[str, str]]:
     scales = {"siding": 0.72, "roof": 0.8, "brick": 0.55, "concrete": 1.15}
-    style_gains = {
-        "craftsman": {
-            "siding": (1.0, 1.0, 1.0),
-            "roof": (1.0, 1.0, 1.0),
-        },
-        "farmhouse": {
-            "siding": (1.65, 1.58, 1.42),
-            "roof": (1.08, 1.08, 1.08),
-        },
-        "cottage": {
-            "siding": (0.62, 0.92, 0.6),
-            "roof": (0.82, 0.76, 0.68),
-        },
+    realistic_gains = {
+        "craftsman": {"siding": (0.82, 0.86, 0.78), "roof": (0.82, 0.82, 0.82)},
+        "farmhouse": {"siding": (1.08, 1.06, 1.0), "roof": (0.86, 0.86, 0.88)},
+        "cottage": {"siding": (0.8, 0.9, 0.78), "roof": (0.8, 0.77, 0.73)},
+        "tudor": {"siding": (0.76, 0.7, 0.64), "roof": (0.72, 0.72, 0.72)},
+        "coastal": {"siding": (0.92, 1.0, 1.04), "roof": (0.84, 0.88, 0.92)},
+        "modern_farmhouse": {"siding": (1.1, 1.08, 1.02), "roof": (0.68, 0.7, 0.74)},
     }
-    gains = style_gains[style]
+    stylized_gains = {
+        style: {role: tuple(min(1.8, channel * 1.22) for channel in value) for role, value in roles.items()}
+        for style, roles in realistic_gains.items()
+    }
+    style_gains = realistic_gains if look == "realistic" else stylized_gains
+    palette_tints = (
+        ((0.96, 0.98, 1.04), (1.0, 1.0, 1.0), (1.04, 0.98, 0.94))
+        if look == "realistic"
+        else ((0.82, 0.94, 1.18), (1.0, 1.0, 1.0), (1.2, 0.9, 0.72))
+    )
+    tint = palette_tints[design.seed % len(palette_tints)]
+    gains = {
+        role: tuple(_rounded(min(2.0, channel * tint[index])) for index, channel in enumerate(value))
+        for role, value in style_gains[design.style].items()
+    }
     materials: Dict[str, Dict[str, str]] = {}
     for role in TEXTURE_ROLES:
         material, shading_group = _pbr_surface(
@@ -993,21 +1250,39 @@ def _create_materials(
             prepared[role]["maps"],
             scales[role],
             gains.get(role, (1.0, 1.0, 1.0)),
+            role,
+            look,
         )
         materials[role] = {"material": material, "shading_group": shading_group}
     trim_colors = {
         "craftsman": (0.78, 0.74, 0.64),
         "farmhouse": (0.88, 0.86, 0.79),
         "cottage": (0.76, 0.68, 0.52),
+        "tudor": (0.82, 0.76, 0.62),
+        "coastal": (0.9, 0.91, 0.86),
+        "modern_farmhouse": (0.12, 0.13, 0.14),
     }
-    solids = {
-        "trim": (trim_colors[style], 0.3, 0.0, 0.0),
-        "glass": ((0.025, 0.06, 0.085), 0.08, 0.0, 0.92),
-        "wood": ((0.18, 0.055, 0.025), 0.26, 0.0, 0.0),
-        "metal": ((0.025, 0.03, 0.035), 0.24, 0.82, 0.0),
-        "ground": ((0.075, 0.16, 0.055), 0.86, 0.0, 0.0),
-        "foliage": ((0.035, 0.16, 0.045), 0.72, 0.0, 0.0),
-    }
+    trim_color = tuple(
+        _rounded(min(1.0, channel * tint[index])) for index, channel in enumerate(trim_colors[design.style])
+    )
+    if look == "realistic":
+        solids = {
+            "trim": (trim_color, 0.38, 0.0, 0.0),
+            "glass": ((0.86, 0.93, 0.97), 0.06, 0.0, 0.96),
+            "wood": ((0.11, 0.045, 0.022), 0.36, 0.0, 0.0),
+            "metal": ((0.12, 0.13, 0.14), 0.2, 0.88, 0.0),
+            "ground": ((0.055, 0.105, 0.042), 0.92, 0.0, 0.0),
+            "foliage": ((0.045, 0.12, 0.038), 0.78, 0.0, 0.0),
+        }
+    else:
+        solids = {
+            "trim": (trim_color, 0.48, 0.0, 0.0),
+            "glass": ((0.08, 0.28, 0.42), 0.2, 0.0, 0.62),
+            "wood": ((0.32, 0.085, 0.025), 0.5, 0.0, 0.0),
+            "metal": ((0.035, 0.045, 0.06), 0.38, 0.72, 0.0),
+            "ground": ((0.08, 0.24, 0.055), 0.95, 0.0, 0.0),
+            "foliage": ((0.04, 0.28, 0.06), 0.88, 0.0, 0.0),
+        }
     for role, values in solids.items():
         material, shading_group = _solid_surface(cmds, f"{base}_M_{role.title()}", *values)
         materials[role] = {"material": material, "shading_group": shading_group}
@@ -1048,6 +1323,8 @@ def _build_graphs(
     root: str,
     design: HouseDesign,
     materials: Mapping[str, Mapping[str, str]],
+    progress: Optional[ProgressCallback] = None,
+    progress_range: Tuple[int, int] = (35, 64),
 ) -> Dict[str, Any]:
     from dcc_mcp_maya.bifrost import (  # noqa: PLC0415
         add_node,
@@ -1058,6 +1335,9 @@ def _build_graphs(
     )
 
     graphs: Dict[str, Dict[str, Any]] = {}
+    total_parts = sum(1 for part in design.parts if part.material in BIFROST_MATERIALS)
+    completed_parts = 0
+    progress_start, progress_end = progress_range
     for material_role in BIFROST_MATERIALS:
         material_parts = [part for part in design.parts if part.material == material_role]
         if not material_parts:
@@ -1098,6 +1378,15 @@ def _build_graphs(
                     f".{transform}.points",
                 )
                 outputs.append(f".{transform}.out_points")
+            completed_parts += 1
+            if completed_parts == total_parts or completed_parts % 4 == 0:
+                fraction = completed_parts / float(max(1, total_parts))
+                value = progress_start + round((progress_end - progress_start) * fraction)
+                _emit_progress(
+                    progress,
+                    value,
+                    f"Building Bifrost structure ({completed_parts}/{total_parts})",
+                )
         array_node = add_node(cmds, graph, "Core::Array::build_array", name="parts")
         for index, source in enumerate(outputs):
             port = f"part_{index:03d}"
@@ -1128,73 +1417,96 @@ def _build_details(
     root: str,
     design: HouseDesign,
     materials: Mapping[str, Mapping[str, str]],
+    progress: Optional[ProgressCallback] = None,
+    progress_range: Tuple[int, int] = (65, 88),
 ) -> Dict[str, Any]:
-    """Build repetitive finish details as fast beveled Maya render meshes."""
+    """Build repetitive finish details with shared meshes to bound host memory."""
     detail_roles = [role for role in MATERIAL_ORDER if role not in BIFROST_MATERIALS]
     groups: Dict[str, str] = {}
     created = 0
+    unique_meshes = 0
+    total_parts = sum(1 for part in design.parts if part.material in detail_roles)
+    progress_start, progress_end = progress_range
     for role in detail_roles:
         role_parts = [part for part in design.parts if part.material == role]
         if not role_parts:
             continue
         group = cmds.group(empty=True, name=f"{base}_{role}_DETAILS", parent=root)
         groups[role] = group
+        prototypes: Dict[str, str] = {}
         for index, part in enumerate(role_parts):
-            width, height, depth = part.dimensions
             node_name = f"{base}_{role}_{index:03d}_{_safe_name(part.name)[:32]}"
-            if part.primitive == "box":
-                created_nodes = cmds.polyCube(
-                    name=node_name,
-                    width=width,
-                    height=height,
-                    depth=depth,
-                    subdivisionsX=1,
-                    subdivisionsY=1,
-                    subdivisionsZ=1,
-                    constructionHistory=False,
+            prototype = prototypes.get(part.primitive)
+            if prototype is None:
+                prototype_name = f"{base}_{role}_{part.primitive}_PROTOTYPE"
+                if part.primitive == "box":
+                    prototype = cmds.polyCube(
+                        name=prototype_name,
+                        width=1.0,
+                        height=1.0,
+                        depth=1.0,
+                        subdivisionsX=1,
+                        subdivisionsY=1,
+                        subdivisionsZ=1,
+                        constructionHistory=False,
+                    )[0]
+                    if role != "glass":
+                        with suppress(RuntimeError):
+                            cmds.polyBevel3(
+                                prototype,
+                                offset=0.025,
+                                segments=2,
+                                offsetAsFraction=True,
+                                constructionHistory=False,
+                            )
+                elif part.primitive == "ellipsoid":
+                    prototype = cmds.polySphere(
+                        name=prototype_name,
+                        radius=0.5,
+                        subdivisionsAxis=16,
+                        subdivisionsHeight=10,
+                        constructionHistory=False,
+                    )[0]
+                else:
+                    raise ValueError(f"unsupported detail primitive: {part.primitive}")
+                prototype = cmds.parent(prototype, group)[0]
+                shapes = cmds.listRelatives(prototype, shapes=True, noIntermediate=True, fullPath=True) or []
+                if not shapes:
+                    raise RuntimeError(f"detail prototype has no render shape: {prototype}")
+                material_role = DETAIL_MATERIAL_ALIASES.get(role, role)
+                cmds.sets(
+                    shapes[0],
+                    edit=True,
+                    forceElement=materials[material_role]["shading_group"],
                 )
-            elif part.primitive == "ellipsoid":
-                created_nodes = cmds.polySphere(
-                    name=node_name,
-                    radius=0.5,
-                    subdivisionsAxis=20,
-                    subdivisionsHeight=12,
-                    constructionHistory=False,
-                )
-            else:
-                raise ValueError(f"unsupported detail primitive: {part.primitive}")
-            transform = created_nodes[0]
+                prototypes[part.primitive] = prototype
+                unique_meshes += 1
+            transform = cmds.instance(prototype, name=node_name)[0]
             cmds.xform(
                 transform,
                 worldSpace=True,
                 translation=part.position,
                 rotation=(0.0, 0.0, part.rotation_z),
             )
-            if part.primitive == "ellipsoid":
-                cmds.xform(transform, objectSpace=True, scale=part.dimensions)
-            elif role != "glass":
-                bevel = min(0.035, min(width, height, depth) * 0.18)
-                if bevel > 0.003:
-                    with suppress(RuntimeError):
-                        cmds.polyBevel3(
-                            transform,
-                            offset=bevel,
-                            segments=2,
-                            offsetAsFraction=False,
-                            constructionHistory=False,
-                        )
-            shapes = cmds.listRelatives(transform, shapes=True, noIntermediate=True, fullPath=True) or []
-            if not shapes:
-                raise RuntimeError(f"detail mesh has no render shape: {transform}")
-            material_role = DETAIL_MATERIAL_ALIASES.get(role, role)
-            cmds.sets(
-                shapes[0],
-                edit=True,
-                forceElement=materials[material_role]["shading_group"],
-            )
-            cmds.parent(transform, group)
+            cmds.xform(transform, objectSpace=True, scale=part.dimensions)
             created += 1
-    return {"groups": groups, "part_count": created}
+            if created == total_parts or created % 8 == 0:
+                fraction = created / float(max(1, total_parts))
+                value = progress_start + round((progress_end - progress_start) * fraction)
+                _emit_progress(
+                    progress,
+                    value,
+                    f"Instancing architectural details ({created}/{total_parts})",
+                )
+        for prototype in prototypes.values():
+            if cmds.objExists(prototype):
+                cmds.setAttr(prototype + ".visibility", False)
+    return {
+        "groups": groups,
+        "part_count": created,
+        "unique_mesh_count": unique_meshes,
+        "instanced": True,
+    }
 
 
 def _look_at(cmds: Any, node: str, target: Tuple[float, float, float]) -> None:
@@ -1223,7 +1535,16 @@ def _select_render_camera(cmds: Any, camera_shape: str) -> None:
         cmds.setAttr(shape + ".renderable", shape == camera_shape)
 
 
-def _stage_scene(cmds: Any, base: str, root: str, frame_count: int) -> Dict[str, Any]:
+def _stage_scene(
+    cmds: Any,
+    base: str,
+    root: str,
+    frame_count: int,
+    look: str,
+    environment: Optional[Mapping[str, Any]] = None,
+    environment_rotation: float = 0.0,
+    environment_exposure: float = 0.0,
+) -> Dict[str, Any]:
     if not cmds.pluginInfo("mtoa", query=True, loaded=True):
         cmds.loadPlugin("mtoa", quiet=True)
     camera, camera_shape = cmds.camera(name=base + "_RenderCamera")
@@ -1240,28 +1561,53 @@ def _stage_scene(cmds: Any, base: str, root: str, frame_count: int) -> Dict[str,
 
     skydome_node = cmds.shadingNode("aiSkyDomeLight", asLight=True, name=base + "_SkyShape")
     skydome_transform, skydome_shape = _light_nodes(cmds, skydome_node)
-    physical_sky = cmds.shadingNode("aiPhysicalSky", asUtility=True, name=base + "_PhysicalSky")
-    _set_attr(cmds, physical_sky, "turbidity", 2.6)
-    _set_attr(cmds, physical_sky, "groundAlbedo", (0.18, 0.2, 0.16))
-    _set_attr(cmds, physical_sky, "useDegrees", True)
-    _set_attr(cmds, physical_sky, "elevation", 34.0)
-    _set_attr(cmds, physical_sky, "azimuth", 138.0)
-    _set_attr(cmds, physical_sky, "sunSize", 1.6)
-    _set_attr(cmds, physical_sky, "intensity", 1.8)
-    cmds.connectAttr(physical_sky + ".outColor", skydome_shape + ".color", force=True)
+    physical_sky = None
+    environment_texture = None
+    if environment is not None:
+        environment_texture = cmds.shadingNode("file", asTexture=True, name=base + "_EnvironmentHDR")
+        _set_attr(cmds, environment_texture, "fileTextureName", str(environment["path"]).replace("\\", "/"))
+        _set_attr(cmds, environment_texture, "ignoreColorSpaceFileRules", True)
+        _set_attr(cmds, environment_texture, "colorSpace", "Raw")
+        cmds.connectAttr(environment_texture + ".outColor", skydome_shape + ".color", force=True)
+        cmds.xform(skydome_transform, rotation=(0.0, float(environment_rotation), 0.0))
+        _set_attr(cmds, skydome_shape, "exposure", float(environment_exposure))
+        _set_attr(cmds, skydome_shape, "aiExposure", float(environment_exposure))
+    else:
+        physical_sky = cmds.shadingNode("aiPhysicalSky", asUtility=True, name=base + "_PhysicalSky")
+        _set_attr(cmds, physical_sky, "turbidity", 2.6)
+        _set_attr(cmds, physical_sky, "groundAlbedo", (0.18, 0.2, 0.16))
+        _set_attr(cmds, physical_sky, "useDegrees", True)
+        _set_attr(cmds, physical_sky, "elevation", 42.0)
+        _set_attr(cmds, physical_sky, "azimuth", 112.0)
+        _set_attr(cmds, physical_sky, "sunSize", 2.2)
+        _set_attr(cmds, physical_sky, "intensity", 1.65)
+        cmds.connectAttr(physical_sky + ".outColor", skydome_shape + ".color", force=True)
     _set_attr(cmds, skydome_shape, "intensity", 1.0)
 
-    cmds.parent(orbit, skydome_transform, root)
+    key_node = cmds.shadingNode("aiAreaLight", asLight=True, name=base + "_KeyShape")
+    key_transform, key_shape = _light_nodes(cmds, key_node)
+    cmds.xform(key_transform, worldSpace=True, translation=(10.0, 13.0, 16.0), scale=(5.0, 5.0, 5.0))
+    _look_at(cmds, key_transform, (0.0, 3.2, 1.0))
+    _set_attr(cmds, key_shape, "color", (1.0, 0.88, 0.72))
+    _set_attr(cmds, key_shape, "intensity", 1.0)
+    _set_attr(cmds, key_shape, "exposure", 3.25 if environment is not None else 2.5)
+    _set_attr(cmds, key_shape, "aiExposure", 3.25 if environment is not None else 2.5)
+    _set_attr(cmds, key_shape, "samples", 3)
+    _set_attr(cmds, key_shape, "aiSamples", 3)
+
+    cmds.parent(orbit, skydome_transform, key_transform, root)
     _set_attr(cmds, "defaultRenderGlobals", "currentRenderer", "arnold")
     _set_attr(cmds, "defaultResolution", "width", 1280)
     _set_attr(cmds, "defaultResolution", "height", 720)
     _set_attr(cmds, "defaultResolution", "deviceAspectRatio", 16.0 / 9.0)
     _set_attr(cmds, "defaultRenderGlobals", "startFrame", 1.0)
     _set_attr(cmds, "defaultRenderGlobals", "endFrame", float(frame_count))
-    _set_attr(cmds, "defaultArnoldRenderOptions", "AASamples", 5)
-    _set_attr(cmds, "defaultArnoldRenderOptions", "GIDiffuseSamples", 2)
-    _set_attr(cmds, "defaultArnoldRenderOptions", "GISpecularSamples", 2)
-    _set_attr(cmds, "defaultArnoldRenderOptions", "GITransmissionSamples", 2)
+    realistic = look == "realistic"
+    _set_attr(cmds, "defaultArnoldRenderOptions", "AASamples", 6 if realistic else 4)
+    _set_attr(cmds, "defaultArnoldRenderOptions", "GIDiffuseSamples", 3 if realistic else 2)
+    _set_attr(cmds, "defaultArnoldRenderOptions", "GISpecularSamples", 3 if realistic else 2)
+    _set_attr(cmds, "defaultArnoldRenderOptions", "GITransmissionSamples", 3 if realistic else 2)
+    _set_attr(cmds, "defaultArnoldRenderOptions", "enableAdaptiveSampling", realistic)
     cmds.currentTime(1, edit=True)
     if not cmds.about(batch=True):
         cmds.lookThru(camera)
@@ -1272,8 +1618,30 @@ def _stage_scene(cmds: Any, base: str, root: str, frame_count: int) -> Dict[str,
         "frame_range": [1, frame_count],
         "renderer": "arnold",
         "resolution": [1280, 720],
-        "lighting": {"skydome": skydome_shape, "physical_sky": physical_sky},
+        "lighting": {
+            "skydome": skydome_shape,
+            "physical_sky": physical_sky,
+            "environment_texture": environment_texture,
+            "environment_asset_id": environment.get("asset_id") if environment is not None else None,
+            "key_light": key_shape,
+        },
     }
+
+
+def _cleanup_generated_nodes(cmds: Any, base: str, root_name: str) -> None:
+    candidates: List[str] = []
+    if cmds.objExists(root_name):
+        candidates.append(root_name)
+    for pattern in (
+        base + "_M_*",
+        base + "_M_*SG",
+        base + "_PhysicalSky",
+        base + "_EnvironmentHDR",
+    ):
+        candidates.extend(cmds.ls(pattern) or [])
+    existing = [node for node in dict.fromkeys(candidates) if cmds.objExists(node)]
+    if existing:
+        cmds.delete(existing)
 
 
 def generate_house(
@@ -1282,13 +1650,26 @@ def generate_house(
     workspace_dir: str,
     seed: Optional[int] = None,
     style: str = "craftsman",
+    look: str = "realistic",
     name: str = "RealisticHouse",
     replace: bool = True,
     frame_count: int = 96,
+    environment_asset: Optional[Mapping[str, Any]] = None,
+    environment_rotation: float = 0.0,
+    environment_exposure: float = 0.0,
+    progress: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
     """Create geometry, Arnold look-dev, lighting, and camera in the current scene."""
+    _emit_progress(progress, 0, "Validating generation request")
     if not 24 <= int(frame_count) <= 240:
         raise ValueError("frame_count must be between 24 and 240")
+    normalized_look = str(look).strip().lower()
+    if normalized_look not in SUPPORTED_LOOKS:
+        raise ValueError("look must be one of: {}".format(", ".join(SUPPORTED_LOOKS)))
+    design = design_house(seed=seed, style=style)
+    _emit_progress(progress, 5, "Preparing CC0 material and HDR assets")
+    texture_context = prepare_textures(material_assets, workspace_dir, environment_asset)
+    _emit_progress(progress, 12, "Loading Maya, Bifrost, and Arnold plugins")
     if not cmds.pluginInfo("mayaVnnPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaVnnPlugin", quiet=True)
     if not cmds.pluginInfo("bifrostGraph", query=True, loaded=True):
@@ -1297,29 +1678,49 @@ def generate_house(
         cmds.loadPlugin("mtoa", quiet=True)
     base = _safe_name(name)
     root_name = base + "_ROOT"
-    if cmds.objExists(root_name):
-        if not replace:
-            raise ValueError(f"{root_name} already exists; pass replace=true")
-        cmds.delete(root_name)
-    for node in cmds.ls(base + "_M_*", base + "_M_*SG", base + "_PhysicalSky") or []:
-        if cmds.objExists(node):
-            cmds.delete(node)
-
-    texture_context = prepare_textures(material_assets, workspace_dir)
-    design = design_house(seed=seed, style=style)
-    root = cmds.group(empty=True, name=root_name)
-    materials = _create_materials(cmds, base, texture_context["materials"], design.style)
-    graphs = _build_graphs(cmds, base, root, design, materials)
-    details = _build_details(cmds, base, root, design, materials)
-    bounds = [float(value) for value in cmds.exactWorldBoundingBox(root)]
-    staging = _stage_scene(cmds, base, root, int(frame_count))
+    if cmds.objExists(root_name) and not replace:
+        raise ValueError(f"{root_name} already exists; pass replace=true")
+    build_started = False
+    try:
+        with _maya_generation_guard(cmds):
+            _emit_progress(progress, 18, "Cleaning the previous generated house")
+            _cleanup_generated_nodes(cmds, base, root_name)
+            root = cmds.group(empty=True, name=root_name)
+            build_started = True
+            _emit_progress(progress, 24, "Creating Arnold PBR materials")
+            materials = _create_materials(cmds, base, texture_context["materials"], design, normalized_look)
+            _emit_progress(progress, 35, "Building Bifrost structure")
+            graphs = _build_graphs(cmds, base, root, design, materials, progress=progress)
+            _emit_progress(progress, 65, "Instancing architectural details")
+            details = _build_details(cmds, base, root, design, materials, progress=progress)
+            _emit_progress(progress, 90, "Computing bounds and staging the Arnold scene")
+            bounds = [float(value) for value in cmds.exactWorldBoundingBox(root)]
+            staging = _stage_scene(
+                cmds,
+                base,
+                root,
+                int(frame_count),
+                normalized_look,
+                texture_context["environment"],
+                environment_rotation,
+                environment_exposure,
+            )
+            _emit_progress(progress, 97, "Finalizing the generated scene")
+    except Exception:
+        if build_started:
+            with suppress(Exception):
+                _cleanup_generated_nodes(cmds, base, root_name)
+        raise
     cmds.select(root, replace=True)
     cmds.refresh(force=True)
+    _emit_progress(progress, 100, "House generation complete")
     return {
         "name": base,
         "root": root,
         "style": design.style,
+        "look": normalized_look,
         "seed": design.seed,
+        "features": list(design.features),
         "part_count": len(design.parts),
         "graphs": graphs,
         "details": details,
@@ -1327,6 +1728,7 @@ def generate_house(
         "bounds": bounds,
         "texture_manifest": texture_context["manifest"],
         "texture_assets": texture_context["materials"],
+        "environment_asset": texture_context["environment"],
         **staging,
     }
 
@@ -1340,6 +1742,10 @@ def show_generator_dialog(
     name: str = "RealisticHouse",
     seed: Optional[int] = None,
     style: str = "craftsman",
+    look: str = "realistic",
+    environment_asset: Optional[Mapping[str, Any]] = None,
+    environment_rotation: float = 0.0,
+    environment_exposure: float = 0.0,
 ) -> Dict[str, Any]:
     """Open a compact PySide generator that reuses the standalone contract."""
     import maya.cmds as cmds  # noqa: PLC0415
@@ -1349,6 +1755,9 @@ def show_generator_dialog(
     normalized_style = str(style).strip().lower()
     if normalized_style not in SUPPORTED_STYLES:
         raise ValueError("style must be one of: {}".format(", ".join(SUPPORTED_STYLES)))
+    normalized_look = str(look).strip().lower()
+    if normalized_look not in SUPPORTED_LOOKS:
+        raise ValueError("look must be one of: {}".format(", ".join(SUPPORTED_LOOKS)))
     try:
         from PySide6 import QtCore, QtWidgets  # type: ignore[import-not-found]  # noqa: PLC0415
     except ImportError:
@@ -1357,6 +1766,8 @@ def show_generator_dialog(
     class HouseGeneratorDialog(QtWidgets.QDialog):
         def __init__(self) -> None:
             super().__init__(QtWidgets.QApplication.activeWindow())
+            self._busy = False
+            self._progress_dialog = None
             self.setWindowTitle("Realistic Bifrost House Generator")
             self.setObjectName("dccMcpRealisticHouseGenerator")
             self.setMinimumWidth(430)
@@ -1369,42 +1780,101 @@ def show_generator_dialog(
             self.style_combo = QtWidgets.QComboBox()
             self.style_combo.addItems(list(SUPPORTED_STYLES))
             self.style_combo.setCurrentText(normalized_style)
+            self.look_combo = QtWidgets.QComboBox()
+            self.look_combo.addItems(list(SUPPORTED_LOOKS))
+            self.look_combo.setCurrentText(normalized_look)
             form.addRow("House name", self.name_edit)
             form.addRow("Seed", self.seed_spin)
             form.addRow("Style", self.style_combo)
+            form.addRow("Material look", self.look_combo)
             layout.addLayout(form)
             assets_label = QtWidgets.QLabel(
                 "PBR: "
                 + ", ".join("{}={}".format(role, material_assets[role].get("asset_id")) for role in TEXTURE_ROLES)
+                + (
+                    "\nHDR: {}".format(environment_asset.get("asset_id"))
+                    if environment_asset is not None
+                    else "\nHDR: Arnold physical sky"
+                )
             )
             assets_label.setWordWrap(True)
             layout.addWidget(assets_label)
             self.status = QtWidgets.QLabel("Ready")
             layout.addWidget(self.status)
             buttons = QtWidgets.QHBoxLayout()
-            generate_button = QtWidgets.QPushButton("Generate")
-            random_button = QtWidgets.QPushButton("Randomize")
-            close_button = QtWidgets.QPushButton("Close")
-            buttons.addWidget(generate_button)
-            buttons.addWidget(random_button)
+            self.generate_button = QtWidgets.QPushButton("Generate")
+            self.random_button = QtWidgets.QPushButton("Randomize")
+            self.close_button = QtWidgets.QPushButton("Close")
+            buttons.addWidget(self.generate_button)
+            buttons.addWidget(self.random_button)
             buttons.addStretch(1)
-            buttons.addWidget(close_button)
+            buttons.addWidget(self.close_button)
             layout.addLayout(buttons)
-            generate_button.clicked.connect(self.generate)
-            random_button.clicked.connect(self.randomize)
-            close_button.clicked.connect(self.close)
+            self.generate_button.clicked.connect(self.generate)
+            self.random_button.clicked.connect(self.randomize)
+            self.close_button.clicked.connect(self.close)
+
+        def _set_busy(self, busy: bool) -> None:
+            self._busy = busy
+            self.generate_button.setEnabled(not busy)
+            self.random_button.setEnabled(not busy)
+            self.close_button.setEnabled(not busy)
+            self.name_edit.setEnabled(not busy)
+            self.seed_spin.setEnabled(not busy)
+            self.style_combo.setEnabled(not busy)
+            self.look_combo.setEnabled(not busy)
+
+        def closeEvent(self, event: Any) -> None:  # noqa: N802
+            if self._busy:
+                event.ignore()
+                self.status.setText("Generation is active; use Cancel on the progress dialog")
+                return
+            super().closeEvent(event)
 
         @QtCore.Slot()
         def randomize(self) -> None:
+            if self._busy:
+                return
             system_random = random.SystemRandom()
             self.seed_spin.setValue(system_random.randint(0, MAX_SEED))
             self.style_combo.setCurrentIndex(system_random.randrange(len(SUPPORTED_STYLES)))
+            self.look_combo.setCurrentIndex(system_random.randrange(len(SUPPORTED_LOOKS)))
             self.generate()
 
         @QtCore.Slot()
         def generate(self) -> None:
-            self.status.setText("Building Bifrost graphs and Arnold materials...")
-            QtWidgets.QApplication.processEvents()
+            if self._busy:
+                return
+            self._set_busy(True)
+            self.status.setText("Queued on Maya's main-thread QTimer...")
+            progress_dialog = QtWidgets.QProgressDialog("Preparing generation...", "Cancel", 0, 100, self)
+            progress_dialog.setWindowTitle("Generating procedural house")
+            progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+            progress_dialog.setMinimumDuration(0)
+            progress_dialog.setAutoClose(False)
+            progress_dialog.setAutoReset(False)
+            progress_dialog.setValue(0)
+            self._progress_dialog = progress_dialog
+            progress_dialog.show()
+            QtCore.QTimer.singleShot(0, self._run_generation)
+
+        @QtCore.Slot()
+        def _run_generation(self) -> None:
+            progress_dialog = self._progress_dialog
+            if progress_dialog is None:
+                self._set_busy(False)
+                return
+
+            def report_progress(value: int, message: str) -> None:
+                if progress_dialog.wasCanceled():
+                    raise GenerationCancelled("generation cancelled by user")
+                progress_dialog.setLabelText(message)
+                progress_dialog.setValue(value)
+                self.status.setText(f"{value}% · {message}")
+                QtWidgets.QApplication.processEvents()
+                if progress_dialog.wasCanceled():
+                    raise GenerationCancelled("generation cancelled by user")
+
             try:
                 result = generate_house(
                     cmds,
@@ -1412,21 +1882,34 @@ def show_generator_dialog(
                     workspace_dir=workspace_dir,
                     seed=self.seed_spin.value(),
                     style=self.style_combo.currentText(),
+                    look=self.look_combo.currentText(),
                     name=self.name_edit.text(),
                     replace=True,
+                    environment_asset=environment_asset,
+                    environment_rotation=environment_rotation,
+                    environment_exposure=environment_exposure,
+                    progress=report_progress,
                 )
                 for panel in cmds.getPanel(type="modelPanel") or []:
                     cmds.modelPanel(panel, edit=True, camera=result["camera"])
                 cmds.refresh(force=True)
                 self.status.setText(
-                    "{} · seed {} · {} detailed parts".format(
+                    "{} · {} · seed {} · {} detailed parts".format(
                         result["style"],
+                        result["look"],
                         result["seed"],
                         result["part_count"],
                     )
                 )
+            except GenerationCancelled:  # pragma: no cover - Maya UI path
+                self.status.setText("Cancelled · partial generation cleaned up")
             except Exception as exc:  # pragma: no cover - Maya UI path
                 self.status.setText(f"Failed: {exc}")
+            finally:
+                progress_dialog.close()
+                progress_dialog.deleteLater()
+                self._progress_dialog = None
+                self._set_busy(False)
 
     for dialog in list(_DIALOGS):
         with suppress(RuntimeError):
@@ -1440,5 +1923,6 @@ def show_generator_dialog(
         "dialog": dialog.objectName(),
         "seed": dialog.seed_spin.value(),
         "style": dialog.style_combo.currentText(),
+        "look": dialog.look_combo.currentText(),
         "mode": "interactive_qt",
     }

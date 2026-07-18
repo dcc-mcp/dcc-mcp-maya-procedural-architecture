@@ -39,6 +39,10 @@ def main(
     name: str = "RealisticHouse",
     seed: Optional[int] = None,
     style: str = "craftsman",
+    look: str = "realistic",
+    environment_asset: Optional[Dict[str, Any]] = None,
+    environment_rotation: float = 0.0,
+    environment_exposure: float = 0.0,
     **_: Any,
 ) -> Dict[str, Any]:
     """Show the Qt dialog in interactive Maya."""
@@ -49,6 +53,10 @@ def main(
             name=name,
             seed=seed,
             style=style,
+            look=look,
+            environment_asset=environment_asset,
+            environment_rotation=environment_rotation,
+            environment_exposure=environment_exposure,
         )
         return skill_success("Opened realistic house generator", **result)
     except Exception as exc:
