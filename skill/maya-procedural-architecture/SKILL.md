@@ -11,7 +11,7 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: maya
-    version: "0.1.0"
+    version: "0.1.0" # x-release-please-version
     layer: domain
     stage: authoring
     tags: ["maya", "bifrost", "architecture", "procedural-modeling", "arnold", "pbr"]

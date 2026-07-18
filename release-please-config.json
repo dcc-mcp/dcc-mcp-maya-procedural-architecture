@@ -2,7 +2,29 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "dcc-mcp-maya-procedural-architecture"
+      "package-name": "dcc-mcp-maya-procedural-architecture",
+      "include-component-in-tag": false,
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name=='dcc-mcp-maya-procedural-architecture')].version"
+        },
+        {
+          "type": "json",
+          "path": "marketplace.json",
+          "jsonpath": "$.entries[0].version"
+        },
+        {
+          "type": "generic",
+          "path": "skill/maya-procedural-architecture/SKILL.md"
+        }
+      ]
     }
   },
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
