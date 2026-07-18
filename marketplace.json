@@ -31,7 +31,7 @@
       "install": {
         "type": "git",
         "url": "https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture",
-        "ref": "6b2d59845dc43127c87727ee823a95747d60dfd3",
+        "ref": "f8055fb95980e2909d25ba636206eabf616be549",
         "skillRoots": [
           "skill/maya-procedural-architecture"
         ]
