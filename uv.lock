@@ -4,5 +4,5 @@ requires-python = ">=3.7"
 
 [[package]]
 name = "dcc-mcp-maya-procedural-architecture"
-version = "0.1.0" # x-release-please-version
+version = "1.0.0" # x-release-please-version
 source = { virtual = "." }
