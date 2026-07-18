@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/compare/v1.0.1...v1.1.0) (2026-07-18)
+
+
+### Features
+
+* add stable multi-look HDR house generation ([#8](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/issues/8)) ([097acff](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/commit/097acff9ed3533601fb823a865d89378c55d9132))
+
 ## [1.0.1](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/compare/v1.0.0...v1.0.1) (2026-07-18)
 
 
