@@ -1,5 +1,28 @@
 # dcc-mcp-maya-procedural-architecture
 
+<p align="center">
+  <img src="docs/assets/dcc-mcp-maya-procedural-architecture.svg" alt="DCC-MCP · MAYA-PROCEDURAL-ARCHITECTURE" width="600">
+</p>
+
+## Agent workflow
+
+AI agents should use the shared gateway through `dcc-mcp-cli`; IDE users may
+continue to use the MCP endpoint. Prefer typed skills and tools over raw scripts.
+
+```bash
+dcc-mcp-cli dcc-types
+dcc-mcp-cli list
+dcc-mcp-cli search --query "<task>" --dcc-type maya
+dcc-mcp-cli describe <tool-slug>
+dcc-mcp-cli call <tool-slug> --json '{"key":"value"}'
+```
+
+`dcc-types` reports release-catalog support; `list` reports live sessions. If a
+tool belongs to an inactive progressive skill, call `dcc-mcp-cli load-skill <skill-name> --dcc-type maya` before retrying. For post-task improvement,
+attach a stable session id with `--meta-json`, query `dcc-mcp-cli stats --range 24h --session-id <task-id>`, then pass the bounded evidence to the
+`review_skill_improvement` prompt from `dcc-mcp-skills-creator`.
+
+
 High-detail residential architecture for Maya. The skill builds seeded
 craftsman, farmhouse, cottage, Tudor, coastal, and modern-farmhouse exteriors
 with material-separated Bifrost structural graphs and instanced finish details.
