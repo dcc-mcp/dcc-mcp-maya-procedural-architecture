@@ -46,12 +46,16 @@ normal maps and writes `asset_attribution.json` beside the textures.
 
 ## Standalone
 
+Set `MAYA_LOCATION` to the Maya installation directory, then run:
+
 ```powershell
-& "C:\Program Files\Autodesk\Maya2025\bin\mayapy.exe" `
+$mayapy = Join-Path $env:MAYA_LOCATION "bin\mayapy.exe"
+$workspace = Join-Path $PWD "house-workspace"
+& $mayapy `
   examples\build_house_standalone.py `
   --assets assets.json `
-  --workspace C:\house-workspace `
-  --output C:\house-workspace\realistic-house.ma `
+  --workspace $workspace `
+  --output (Join-Path $workspace "realistic-house.ma") `
   --style farmhouse `
   --seed 20260718
 ```
@@ -66,8 +70,7 @@ vx ruff check skill tests examples
 vx ruff format --check skill tests examples
 vx uv run --with pytest --with pyyaml pytest
 vx uv run --with "dcc-mcp-core>=0.19" python `
-  C:\Users\hallong\.codex\skills\dcc-mcp-skills-creator\scripts\validate_skill_dir.py `
-  skill\maya-procedural-architecture
+  -c "from dcc_mcp_core import validate_skill; report=validate_skill('skill/maya-procedural-architecture'); print(report); assert not report.has_errors"
 ```
 
 ## License

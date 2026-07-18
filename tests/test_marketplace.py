@@ -17,3 +17,11 @@ def test_marketplace_showcase_is_installable_from_an_immutable_revision():
     assert Path(entry["showcase"]).suffix.lower() == ".gif"
     assert entry["install"]["skillRoots"] == ["skill/maya-procedural-architecture"]
     assert "ambientcg-assets" in entry["requires"]["skills"]
+
+
+def test_public_documentation_has_no_machine_local_paths():
+    documents = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]
+    forbidden = re.compile(r"[A-Za-z]:\\|/(?:Users|home)/|\.codex[/\\]", re.IGNORECASE)
+
+    for document in documents:
+        assert forbidden.search(document.read_text(encoding="utf-8")) is None, document
