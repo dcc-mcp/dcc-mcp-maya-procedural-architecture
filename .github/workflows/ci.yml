@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/**, feat/**, fix/**, refactor/**, release-please--branches--main--**]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install checks
+        run: pip install "dcc-mcp-core>=0.19" pytest pyyaml ruff
+      - name: Ruff
+        run: |
+          ruff check skill tests examples
+          ruff format --check skill tests examples
+      - name: Tests
+        run: pytest
+      - name: Validate skill
+        run: python -c "from dcc_mcp_core import validate_skill; report=validate_skill('skill/maya-procedural-architecture'); print(report); assert not report.has_errors"
+      - name: Validate marketplace
+        run: python -c "import json; data=json.load(open('marketplace.json')); assert data['entries'][0]['name']=='dcc-mcp-maya-procedural-architecture'"
+      - name: Layout guard
+        shell: bash
+        run: test ! -e SKILL.md && test ! -e tools.yaml && test ! -d scripts

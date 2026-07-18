@@ -1,0 +1,119 @@
+tools:
+  - name: generate_realistic_house
+    description: Generate a detailed seeded craftsman, farmhouse, or cottage as Bifrost structural graphs with Arnold PBR look-dev and an animated camera orbit.
+    source_file: scripts/generate_realistic_house.py
+    input_schema:
+      type: object
+      required: [material_assets, workspace_dir]
+      properties:
+        seed:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: Reuse a returned seed to reproduce the same house.
+        style:
+          type: string
+          enum: [craftsman, farmhouse, cottage]
+          default: craftsman
+        name:
+          type: string
+          default: RealisticHouse
+        workspace_dir:
+          type: string
+          description: Absolute directory for extracted textures and attribution manifest.
+        material_assets:
+          type: object
+          required: [siding, roof, brick, concrete]
+          properties:
+            siding: {type: object}
+            roof: {type: object}
+            brick: {type: object}
+            concrete: {type: object}
+          additionalProperties: false
+        replace:
+          type: boolean
+          default: true
+        frame_count:
+          type: integer
+          minimum: 24
+          maximum: 240
+          default: 96
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, context]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 600
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success:
+        - maya-render__render_frame
+      on-failure:
+        - dcc_diagnostics__screenshot
+        - dcc_diagnostics__audit_log
+
+  - name: show_house_generator
+    description: Open an interactive Maya Qt dialog that generates and randomizes the same realistic Bifrost house contract.
+    source_file: scripts/show_house_generator.py
+    input_schema:
+      type: object
+      required: [material_assets, workspace_dir]
+      properties:
+        material_assets:
+          type: object
+          required: [siding, roof, brick, concrete]
+          properties:
+            siding: {type: object}
+            roof: {type: object}
+            brick: {type: object}
+            concrete: {type: object}
+          additionalProperties: false
+        workspace_dir:
+          type: string
+        name:
+          type: string
+          default: RealisticHouse
+        seed:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        style:
+          type: string
+          enum: [craftsman, farmhouse, cottage]
+          default: craftsman
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        context: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: []
+      on-failure:
+        - dcc_diagnostics__screenshot
