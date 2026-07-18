@@ -11,9 +11,8 @@
           "jsonpath": "$.project.version"
         },
         {
-          "type": "toml",
-          "path": "uv.lock",
-          "jsonpath": "$.package[?(@.name=='dcc-mcp-maya-procedural-architecture')].version"
+          "type": "generic",
+          "path": "uv.lock"
         },
         {
           "type": "json",
