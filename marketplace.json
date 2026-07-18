@@ -4,21 +4,37 @@
     {
       "name": "dcc-mcp-maya-procedural-architecture",
       "description": "Seeded craftsman, farmhouse, and cottage Bifrost structures with beveled finishes, Arnold PBR materials, and a Maya generator GUI",
-      "dcc": ["maya"],
-      "tags": ["maya", "bifrost", "architecture", "procedural-modeling", "arnold", "pbr"],
-      "version": "0.1.0",
+      "dcc": [
+        "maya"
+      ],
+      "tags": [
+        "maya",
+        "bifrost",
+        "architecture",
+        "procedural-modeling",
+        "arnold",
+        "pbr"
+      ],
+      "version": "1.0.0",
       "min_core_version": "0.19.0",
       "maintainer": "dcc-mcp",
       "category": "Skills",
       "url": "https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture",
       "requires": {
-        "skills": ["maya-bifrost", "maya-materials", "maya-render", "ambientcg-assets"]
+        "skills": [
+          "maya-bifrost",
+          "maya-materials",
+          "maya-render",
+          "ambientcg-assets"
+        ]
       },
       "install": {
         "type": "git",
         "url": "https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture",
         "ref": "6b2d59845dc43127c87727ee823a95747d60dfd3",
-        "skillRoots": ["skill/maya-procedural-architecture"]
+        "skillRoots": [
+          "skill/maya-procedural-architecture"
+        ]
       },
       "showcase": "docs/showcase/maya-bifrost-random-houses.gif",
       "policy": {
