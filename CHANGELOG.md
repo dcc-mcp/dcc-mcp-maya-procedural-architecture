@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/compare/v1.0.0...v1.0.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* remove machine-local README paths ([#5](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/issues/5)) ([de871fa](https://github.com/dcc-mcp/dcc-mcp-maya-procedural-architecture/commit/de871faa8a29988015b555beccaad61b47ad61d7))
+
 ## 1.0.0 (2026-07-18)
 
 
