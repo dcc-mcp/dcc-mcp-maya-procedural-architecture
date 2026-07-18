@@ -5,6 +5,12 @@ craftsman, farmhouse, and cottage exteriors with material-separated Bifrost
 structural graphs and beveled Maya finish details, applies real CC0 PBR
 textures with Arnold triplanar shading, and stages a render camera and orbit.
 
+![Seeded Maya and Bifrost procedural house styles](docs/showcase/maya-bifrost-random-houses.gif)
+
+The showcase is a 51-frame, 1280×720 Arnold render cycling three deterministic
+style presets. The [turntable contact sheet](docs/showcase/turntable-contact-sheet.jpg)
+shows four rendered camera angles for every preset.
+
 House-specific code lives here. The Maya adapter keeps only generic typed
 Bifrost/VNN graph operations, while `dcc-asset-ambientcg` owns asset discovery
 and downloads.
