@@ -104,3 +104,15 @@ vx uv run --with "dcc-mcp-core>=0.19" python `
 Code is MIT licensed. Downloaded material assets are not bundled; each
 AssetDescriptor and generated manifest retains the provider's CC0 license and
 source URL.
+
+## PyPI status: not published
+
+This repository is an **agent skill pack**, not a distributable Python package.
+It contains no importable module under `src/` — the deliverable is the set of
+markdown skill definitions under `skill/`, which agents load from the repository
+or the skill marketplace rather than via `pip install`.
+
+It is therefore intentionally **not published to PyPI**, and no release
+workflow exists for that purpose. Tracked in [PIP-3630][pip3630].
+
+[pip3630]: https://monica.woa.com/issues/01a0d880-e0c8-7ee2-8f7c-ccc783e279dc
